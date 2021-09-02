@@ -6,13 +6,74 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 
-
 """
-Generates plots of per condition e.g.cpu_2
+Generates 2 plots 
 Show number of instances for each type of the workflow
+ 1-st plot is stacked and shows the granual classes 
+ 2-nd plot only shows totals per 
 y-axis number of instances
 x-axis workflow type
 """
+
+def generate_agg_condition_wf_dist(data_condition_dir, pdf, colors, pattern):
+    
+    labels    = []
+    wf        = []
+    all_total = []
+    width,height   = 6,4
+    x   = np.zeros(5)
+    fig = plt.figure(figsize = (width + 2,height + 2))
+
+    for data_dir in data_condition_dir:
+
+        condition_type = data_dir.split('/')[-1]
+        wf_type_list   = [re.sub(pattern, '', x.split('/')[-1]) for x in glob.glob(data_dir + '/*')]
+        wf_counts_long = Counter(wf_type_list)
+        wf_counts      = {}
+        wf_counts_list = list(wf_counts_long.keys())
+        wf_counts_list.sort()
+        labels.append(condition_type)
+        
+        for key in wf_counts_list:
+            wf_counts[key.split('_')[0]] = wf_counts_long[key]            
+        all_total.append(list(wf_counts.values()))
+        plt.bar(wf_counts_list, wf_counts.values(), width=0.8, bottom = x, label = condition_type)
+        
+        x = x + list(wf_counts.values())
+    j = -0.1
+    for i in x:
+        plt.text(j, i+10, int(i), fontsize=12)
+        j = j+1
+        
+    plt.xticks(rotation=15, fontsize=7)
+    plt.title('Distribution of Granular Conditions per Workflow ', fontsize=13)
+    plt.xlabel('Workflow Type', fontsize=12)
+    plt.ylabel('# of workflow instances', fontsize=12)
+    plt.tight_layout(h_pad=3.0)
+    plt.legend(labels,loc='right')  
+    pdf.savefig(fig)
+    plt.close()
+        
+    fig = plt.figure(figsize = (width+2,height+2))
+    plt.bar(wf_counts.keys(), x, color=colors)
+    
+    j = -0.1
+    for i in x:
+        plt.text(j, i+10, int(i), fontsize=12)
+        j = j+1
+          
+    plt.xticks(rotation=15, fontsize=7)
+    plt.title(' Distribution of Instances per Workflow', fontsize=13)
+    plt.xlabel('Workflow Type', fontsize=12)
+    plt.ylabel('# of workflow instances', fontsize=12)
+    plt.tight_layout(h_pad=3.0)
+    pdf.savefig(fig)
+    plt.close()
+    wf = list(wf_counts.keys())
+
+                
+    return all_total, wf, labels, pdf
+
 
 def generate_condition_wf_dist(data_condition_dir, pdf, colors, pattern):
     
@@ -49,8 +110,6 @@ def generate_condition_wf_dist(data_condition_dir, pdf, colors, pattern):
     return all_total, wf, labels, pdf
 
 
-
-
 """
 Generates a single stacked plot where workflow types
 are aggregated per granular condition: 
@@ -63,7 +122,7 @@ def generate_single_dist(labels, wf, all_total, pdf):
     width,height   = 6,4
     total = np.zeros(len(labels))
     all_total = np.transpose(all_total)    
-    fig = plt.figure(figsize = (width+2,height+2))
+    fig       = plt.figure(figsize = (width+2,height+2))
 
     for i in range(len(wf)):
         plt.bar(labels, all_total[i], width=0.4,bottom = total, label = labels[i])
@@ -98,7 +157,7 @@ def generate_main_type_dist(indexes,labels, wf, all_total, pdf):
     
     labels = list(map(labels.__getitem__,indexes))
     main_type_total = all_total[indexes,:]
-    agg_type_total = main_type_total.sum(axis=0)
+    agg_type_total  = main_type_total.sum(axis=0)
 
     main_type_total = np.transpose(main_type_total)
     total = np.zeros(len(labels))  
