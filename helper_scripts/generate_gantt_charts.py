@@ -71,7 +71,7 @@ def plot_data(dataset, data_orders,max_sum, columns_names, save_file_name):
     bottoms = np.arange(len(data_orders))
     
     #f, ax = plt.subplots(figsize=(1024/MY_DPI,1024/MY_DPI),dpi = MY_DPI)
-    f, ax = plt.subplots(figsize=(50,50))
+    f, ax = plt.subplots(figsize=(30,30))
     plt.xlim([0,max_sum])
     plt.ylim(0,num_jobs-1)
 
@@ -89,6 +89,7 @@ def plot_data(dataset, data_orders,max_sum, columns_names, save_file_name):
 
     #plt.savefig('{}.png'.format(save_file_name),dpi = MY_DPI,bbox_inches='tight', pad_inches=0)
     plt.savefig('{}.png'.format(save_file_name),bbox_inches='tight', pad_inches=0)
+    plt.close()
     return
 
 
