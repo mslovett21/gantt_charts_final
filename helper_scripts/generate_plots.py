@@ -11,8 +11,8 @@ from plotting_functions import generate_single_dist,generate_condition_wf_dist,g
 def get_arguments():
     
     parser = argparse.ArgumentParser(description="Plot Gantt Charts Distributions")    
-    parser.add_argument('--data_path', type=str, default='../raw_gantt_chart_data/output/',help='path to dataset ')
-    parser.add_argument('--output_fname', type=str, default = '../wf_distributions.pdf' ,help='name of the output pdf file')   
+    parser.add_argument('--data_path', type=str, default='../raw_gantt_chart_data_balanced/output/',help='path to dataset ')
+    parser.add_argument('--output_fname', type=str, default = '../wf_distributions_balanced.pdf' ,help='name of the output pdf file')   
     args = parser.parse_args()
     
     return args

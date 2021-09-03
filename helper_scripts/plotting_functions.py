@@ -103,6 +103,10 @@ def generate_condition_wf_dist(data_condition_dir, pdf, colors, pattern):
         plt.xlabel('Workflow', fontsize=12)
         plt.ylabel('# of workflow instances', fontsize=12)
         plt.tight_layout(h_pad=3.0)
+        j = -0.1
+        for i in wf_counts.values():
+            plt.text(j, i-1, int(i), fontsize=12)
+            j = j+1
         pdf.savefig(fig)
         plt.close()
         wf = list(wf_counts.keys())
