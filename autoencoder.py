@@ -17,7 +17,19 @@ from torch.utils.data import DataLoader
 torch.cuda.empty_cache()
 
 from models.simple_AE import AutoEncoder
+from utils.early_stopping import EarlyStopping
+
 from IPython import embed
+
+import mlflow
+
+
+####################
+# TODO
+# add Early stopping
+# add resume training
+# add more mlflow
+
 
 gc.collect()
 torch.cuda.empty_cache()
@@ -128,7 +140,7 @@ def train_model(ae_model, gantt_data_loader, gantt_dataset_test, pad, epochs, lr
         rec_loss_all.append(rec_loss)
 
         print("Epoch {}: Reconstruction Loss: {}".format(train_it, rec_loss))
-        if ep % 5 == 0:
+        if ep % 10 == 0:
             torch.save(ae_model.state_dict(), checkpoint_dir + "/ae_model_"+ str(train_it) + ".pth")
         
         img = vis_reconstruction(ae_model,gantt_dataset_test, str(train_it), pad, recon_imgs_dir)
@@ -178,18 +190,21 @@ def eval_model(ae_model,gantt_data_loader,gantt_dataset,dataset_name,pad,recon_i
 def get_AE_params(img_res):
 
     shallow_layer, deep_layer = 256, 2048    
-    z_emb_size    = 1024
+    z_emb_size    = 128
     pad, dim      = 7, 2         
     features      = 512
     var_stride    = 2
 
     if img_res == 512:
         shallow_layer, deep_layer = 2048, 6400 
-        z_emb_size    = 1048
+        z_emb_size    = 1024
         pad, dim      = 25, 5    
         features      = 256
         var_stride    = 3
 
+    mlflow.log_param("shallow_layer", shallow_layer)
+    mlflow.log_param("deep_layer", deep_layer)
+    mlflow.log_param("z_emb_size", z_emb_size)
     return shallow_layer, z_emb_size, pad, deep_layer,dim, features, var_stride
 
 
@@ -202,11 +217,20 @@ def main():
     torch.cuda.memory_summary(device=None, abbreviated=False)
     args = get_arguments()
 
-    epochs   = args.epochs
-    data_dir = args.data_dir
+    mlflow.set_experiment('gantt_charts_AE')
+    run =  mlflow.start_run()
+
+    epochs     = args.epochs
+    data_dir   = args.data_dir
+    batch_size = args.batch_size
     img_resolution = args.img_res
     lr             = 0.0001
     checkpoint_number = 600
+
+    mlflow.log_param("data_dir", data_dir)
+    mlflow.log_param("batch_size", batch_size)
+    mlflow.log_param("img_resolution", img_resolution)
+    mlflow.log_param("lr", lr)
 
     rel_path   = os.getcwd()
     dir_string = "AE_test"
@@ -222,7 +246,6 @@ def main():
     os.makedirs(recon_imgs_dir)
 
     shallow_layer, z_emb_size, pad, deep_layer,dim, features, var_stride = get_AE_params(img_resolution)
-    batch_size = 4
     nworkers   = 4 # number of wrokers used for efficient data loading
     ae_model   = AutoEncoder(deep_layer, shallow_layer, z_emb_size, dim, features, var_stride)
 
