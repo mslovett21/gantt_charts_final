@@ -4,6 +4,7 @@ import torchvision
 import os
 from PIL import Image
 import seaborn as sns
+import cv2
 import numpy as np
 import time
 import scikitplot as skplt
@@ -20,7 +21,7 @@ from torchsummary import summary
 
 # Paths
 REL_PATH = os.getcwd()
-DATA_DIR = "/gantt_chart_images_224by224/"
+DATA_DIR = "/gantt_chart_images_224by224_nogenome/"
 TRAIN_DATA_DIR = REL_PATH + DATA_DIR + '/train'
 VAL_DATA_DIR =  REL_PATH + DATA_DIR + '/validation'
 TEST_DATA_DIR = REL_PATH + DATA_DIR + '/test'
@@ -28,7 +29,7 @@ MLFLOW_RUNS = REL_PATH + "/mlflow_runs/"
 
 VIS_RESULTS_PATH = REL_PATH + '/visualizations/'
 
-ADDITIONAL_TRANSFORMATION = True
+ADDITIONAL_TRANSFORMATION = False
 HPO_MODEL_DEV = True
 
 RESIZE = False
@@ -46,13 +47,13 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 IMG_SIZE = [224, 224]  # this is for Augmentation - Image Resize
 tensor = (3, 224, 224) # this is to predict the in_features of FC Layers
 
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 LR = 1e-3 #{"body":1e-4, "head":1e-3}
 
 FREEZE_BLOCKS = "6" # Freezes first seven blocks
 EPOCHS = 300
-PATIENCE = 25
-HIDDEN_DIM = 2048
+PATIENCE = 15
+HIDDEN_DIM = 1024
 OUTPUT_DIM = 4
 
 
@@ -74,11 +75,11 @@ class ResNet50Model(torch.nn.Module):
     # Classification head of the model.
     self.head = torch.nn.Sequential(
         torch.nn.Flatten(),
-        torch.nn.Linear(in_features=2048, out_features=512, bias=True),
-        torch.nn.BatchNorm1d(512),
+        torch.nn.Linear(in_features=2048, out_features=128, bias=True),
+        torch.nn.BatchNorm1d(128),
         torch.nn.ReLU(),
         torch.nn.Dropout(0.4),
-        torch.nn.Linear(512, 4))
+        torch.nn.Linear(128, 4))
     
 
   def forward(self, x):
@@ -112,15 +113,15 @@ class ResNet18Model(torch.nn.Module):
                     torch.nn.Linear(in_features=self.in_feat, out_features=HIDDEN_DIM, bias=True), #not such a steep jump
                     torch.nn.BatchNorm1d(HIDDEN_DIM),
                     torch.nn.ReLU(),
-                    torch.nn.Dropout(0.2),
-                    torch.nn.Linear(in_features=HIDDEN_DIM, out_features=2048, bias=True),
-                    torch.nn.BatchNorm1d(2048),
-                    torch.nn.ReLU(),
-                    torch.nn.Linear(in_features=2048, out_features=512, bias=True),
-                    torch.nn.BatchNorm1d(512),
-                    torch.nn.ReLU(),
+                    torch.nn.Dropout(0.4),
+                    # torch.nn.Linear(in_features=HIDDEN_DIM, out_features=2048, bias=True),
+                    # torch.nn.BatchNorm1d(2048),
+                    # torch.nn.ReLU(),
+                    # torch.nn.Linear(in_features=2048, out_features=512, bias=True),
+                    # torch.nn.BatchNorm1d(512),
+                    # torch.nn.ReLU(),
    
-                    torch.nn.Linear(512,OUTPUT_DIM)
+                    torch.nn.Linear(HIDDEN_DIM,OUTPUT_DIM)
         ) 
 
     def get_dim(self, input_size):
@@ -245,9 +246,10 @@ def train_model(traindata, valdata):
 
     used_early_stopping  = False
 
-    model = ResNet50Model().to(DEVICE)
+    model = ResNet18Model().to(DEVICE)
     criterion = torch.nn.CrossEntropyLoss().to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), LR)
+    # optimizer = torch.optim.Adam(model.parameters(), LR)
+    optimizer = torch.optim.SGD(model.parameters(), LR, momentum=0.9)
 
     # optimizer = torch.optim.Adam([{'params': model.body.parameters(), 'lr':LR['body']},
     #                             {'params':model.head.parameters(), 'lr':LR['head']}])
@@ -259,7 +261,7 @@ def train_model(traindata, valdata):
     train_acc = []
     val_acc = []
 
-    mlflow.log_param("Model", 'ResNet-18')
+    mlflow.log_param("Model", 'ResNet-50')
     mlflow.log_param("LR", LR)
     # mlflow.log_param("LR_body", LR['body'])
     # mlflow.log_param("LR_head", LR['head'])
@@ -406,6 +408,14 @@ def draw_training_curves(train_losses, test_losses, curve_name, epoch):
     mlflow.log_artifact(VIS_RESULTS_PATH + "/{}_final_resnet.png".format(curve_name))
     plt.close()
 
+def my_collate(batch):
+    images, labels = [], []
+    for image, label in batch:
+        image =  cv2.cvtColor(np.array(image), cv2.COLOR_BGRA2BGR)
+        images.append(image)
+        labels.append(label)
+    return [images, labels]
+
 def main():
 
     train_transforms = None
@@ -440,11 +450,12 @@ def main():
         test_dataset  = datasets.ImageFolder(TEST_DATA_DIR, transform=test_transforms)
 
 
+    print("Length of train dataset: ",len(train_dataset))
     losses, accuracies, model, test_loader, early_stop, epoch = train_model(train_dataset, test_dataset)
 
     if early_stop:
         mlflow.pytorch.log_model(model, "early_stopping_resnet18_model")
-        model = ResNet50Model().to(DEVICE)
+        model = ResNet18Model().to(DEVICE)
         model_uri =  "runs:/{}/early_stopping_resnet18_model".format(run.info.run_id)
         model = mlflow.pytorch.load_model(model_uri)
     else:
