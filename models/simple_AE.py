@@ -78,5 +78,9 @@ class AutoEncoder(nn.Module):
     def reconstruct(self, x):
         """Only used later for visualization."""
         return self.forward(x)
+
     def embed(self, x):
         return self.encoder(x)
+
+    def decode(self, emb):
+        return self.decoder(emb)
