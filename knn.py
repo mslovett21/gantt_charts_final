@@ -25,9 +25,18 @@ def get_data(artifacts_dir):
 
     return train_df, test_df
 
+def get_all_gant_data():
+
+    path = '/home/shubham/crisis-computing/SupContrast/supcon_gant_embeddings.csv'
+    embed = pd.read_csv(path)
+    train_embed, test_embed = train_test_split(embed, test_size=0.3)
+
+    return train_embed, test_embed
+
+    
 def knn_predictions(train_df, test_df):
 
-    knn = KNeighborsClassifier(n_neighbors=3)
+    knn = KNeighborsClassifier(n_neighbors=2)
     train_feat, train_lab, test_feat, test_lab = train_df[train_df.columns[:-1]], train_df['target'], test_df[test_df.columns[:-1]], test_df['target']
     knn.fit(train_feat, train_lab)
     pred = knn.predict(test_feat)
@@ -63,12 +72,14 @@ def main():
 
     train_df, test_df = get_data(artifacts_dir)
 
-    pred, true, score = knn_predictions(train_df, test_df)
+    supcon_train, supcon_test = get_all_gant_data()
+    pred, true, score = knn_predictions(supcon_train, supcon_test)
+    supcon_path = '/home/shubham/crisis-computing/SupContrast/'
+    plot_cm(true, pred, supcon_path)
 
-    plot_cm(true, pred, artifacts_dir)
-    prec, recall, fscore, _ = precision_recall_fscore_support(true, pred, average='binary')
+    prec, recall, fscore, _ = precision_recall_fscore_support(true, pred, average='macro')
     print("Prec: {}, recall: {}, fscore: {} \n".format(prec, recall, fscore))
-
+    
     return
     
 
