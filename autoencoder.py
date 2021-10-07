@@ -40,6 +40,7 @@ torch.cuda.empty_cache()
 torch.manual_seed(0)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(DEVICE)
+torch.multiprocessing.set_sharing_strategy('file_system')
 #################################################################################################
 
 
@@ -47,13 +48,14 @@ def get_arguments():
 
     parser = argparse.ArgumentParser('Train or Eval AutoEncoder')
     parser.add_argument('-data_dir', type= str, help="Path to the folder with the data")
-    parser.add_argument('--epochs', type=int, default= 100, help="Number of training epochs")
+    parser.add_argument('--epochs', type=int, default= 300, help="Number of training epochs")
     parser.add_argument('--batch_size', type=int, default=64, help="Number of training epochs")
     parser.add_argument('--img_res', type=int, default=224, help="Image resolution")
     parser.add_argument('-e','--evalmode', help ='if set looks for checkpoint and evaluate data on it', action= "store_true")
     parser.add_argument('--timestamp', help='Enter particular run timestr', type=str, default=None)
     parser.add_argument('--model_ckpt', help='Enter specific checkpointed model name eg: ae_model_60.pth', default='ae_model_10.pth', type=str)
     parser.add_argument('--patience', type=int, default=10, help='Early stopping threshold')
+    parser.add_argument('--em_dataset_type', type=str, default='test', help='Generate embeddings for dataset')
     args = parser.parse_args()
     return args
 
@@ -116,59 +118,7 @@ def vis_reconstruction(model,gantt_dataset,train_it, pad, recon_imgs_dir):
 
 
 
-######################################################################################################3
-
-class EarlyStopping:
-    """
-    Early stops the training if validation loss doesn't improve after a given patience.
-    
-    """
-    def __init__(self, patience=4, verbose=False, delta=0.0001, path='early_stopping_ae_model.pth'):
-        """
-        Args:
-            patience (int): How long to wait after last time validation loss improved.
-                            Default: 10
-            verbose (bool): If True, prints a message for each validation loss improvement. 
-                            Default: False
-            delta (float): Minimum change in the monitored quantity to qualify as an improvement.
-                            Default: 0
-            path (str): Path for the checkpoint to be saved to.
-                            Default: 'early_stopping_vgg16model.pth'   
-        """
-        self.patience = patience
-        self.verbose = verbose
-        self.counter = 0
-        self.best_score = None
-        self.early_stop = False
-        self.val_loss_min = np.Inf
-        self.delta = delta
-        self.path = path
-    
-    def __call__(self, val_loss, model, save_dir):
-        
-        score = -val_loss
-        
-        if self.best_score is None:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model, save_dir)
-            
-        elif score < self.best_score + self.delta:
-            self.counter += 1
-            
-            if self.counter >= self.patience:
-                self.early_stop = True
-                
-        else:
-            self.best_score = score
-            self.save_checkpoint(val_loss, model, save_dir)
-            self.counter = 0   
-    
-    def save_checkpoint(self, val_loss, model, save_dir):
-        """
-        saves the current best version of the model if there is decrease in validation loss
-        """
-        torch.save(model.state_dict(), save_dir + self.path)
-        self.vall_loss_min = val_loss
+######################################################################################################
 
 
 
@@ -184,7 +134,7 @@ def train_model(ae_model, gantt_data_loader, gantt_dataset_test, pad, epochs, lr
     ae_model.to(DEVICE)
     train_it = 0
 
-    early_stop = EarlyStopping(patience=patience)
+    early_stop = EarlyStopping(path=checkpoint_dir, patience=patience)
 
     for ep in range(epochs):
         print("Run Epoch {}".format(ep))
@@ -194,8 +144,8 @@ def train_model(ae_model, gantt_data_loader, gantt_dataset_test, pad, epochs, lr
         for sample_img, _ in gantt_data_loader:
             sample_img = sample_img.to(DEVICE)
             opt.zero_grad()
-            dec = ae_model(sample_img)
-            result = F.pad(input= dec, pad=(0, pad, pad, 0), mode='constant', value=0)
+            dec      = ae_model(sample_img)
+            result   = F.pad(input= dec, pad=(0, pad, pad, 0), mode='constant', value=0)
             rec_loss = criterion(result, sample_img)
             rec_loss_ep += rec_loss
             rec_loss.backward()
@@ -222,7 +172,7 @@ def train_model(ae_model, gantt_data_loader, gantt_dataset_test, pad, epochs, lr
             print(" Test Reconstruction Loss: {}".format(test_loss))
         
         test_loss_all.append(test_loss)
-        early_stop(test_loss, ae_model, checkpoint_dir)
+        early_stop(test_loss, ae_model)
 
         if early_stop.early_stop:
             print("Early stopping")
@@ -249,10 +199,8 @@ def generate_embedding_csv(embeddings, labels, embed_size, path, file_name):
         a_series = pd.Series(rows, index=embed_df.columns)
         embed_df = embed_df.append(a_series, ignore_index=True)
     
-    targets = pd.DataFrame(labels)
-   
-    embed_df['target'] = targets
-    
+    targets = pd.DataFrame(labels)   
+    embed_df['target'] = targets   
     embed_df.to_csv(path + file_name, index=False)
 
 
@@ -285,7 +233,7 @@ def eval_model(ae_model, dataloader, embed_size, pad):
 def get_AE_params(img_res):
 
     shallow_layer, deep_layer = 256, 2048    
-    z_emb_size    = 128
+    z_emb_size    = 256
     pad, dim      = 7, 2         
     features      = 512
     var_stride    = 2
@@ -325,7 +273,7 @@ class Dataset_Loader(torch.utils.data.Dataset):
         return image, label
 
 
-def get_anomalies(rel_path, res, nworkers):
+def get_anomalies(rel_path, res, nworkers, dataset_type):
     """
     Creates a binary dataloader with class 0 as Normal Test data, and class 1 as Anomalous (cpu, hdd, loss) Test data.
     :param rel_path: relative path os.getcwd()
@@ -334,19 +282,22 @@ def get_anomalies(rel_path, res, nworkers):
     :return anomaly_data_loader: anomaly dataset loader
     :return normal_data_loader: normal dataset loader
     """
-    normal_path = rel_path + '/datasets/gantt_chart_images_224by224_nogenome_NORMAL/test/normal/'
-    cpu_path    = rel_path + '/datasets/gantt_chart_images_224by224_nogenome_CPU/test/cpu/'
-    hdd_path    = rel_path + '/datasets/gantt_chart_images_224by224_nogenome_HDD/test/hdd/'
-    loss_path   = rel_path + '/datasets/gantt_chart_images_224by224_nogenome_LOSS/test/loss/'
+    normal_path = rel_path + '/datasets/gantt_chart_images_224by224_nogenome_NORMAL/{}/normal/'.format(dataset_type)
+    cpu_path    = rel_path + '/datasets/gantt_chart_images_224by224_nogenome_CPU/{}/cpu/'.format(dataset_type)
+    hdd_path    = rel_path + '/datasets/gantt_chart_images_224by224_nogenome_HDD/{}/hdd/'.format(dataset_type)
+    loss_path   = rel_path + '/datasets/gantt_chart_images_224by224_nogenome_LOSS/{}/loss/'.format(dataset_type)
 
-    anomalies = glob.glob(cpu_path + '*.png')
-    anomalies += glob.glob(hdd_path + '*.png')
-    anomalies += glob.glob(loss_path + '*.png')
+    anomalies_normal  = glob.glob(normal_path + '*.png')
+    anomalies_hdd  = glob.glob(hdd_path + '*.png')
+    anomalies_loss = glob.glob(loss_path + '*.png')
+    anomalies = [*anomalies_hdd, *anomalies_loss, *anomalies_normal]
+    if dataset_type == "test":
+        anomalies = [*anomalies_hdd[:54], *anomalies_loss[:54], *anomalies_normal[:54]]
     anomaly_labels = [1]*len(anomalies)
 
     print("Size of anomalies: ",len(anomalies))
 
-    normal = glob.glob(normal_path + '*.png')
+    normal = glob.glob(cpu_path + '*.png')
     normal_labels = [0]*len(normal)
 
     print("Size of normal data: ",len(normal))    
@@ -388,6 +339,7 @@ def main():
     checkpoint_number = 600
     timestamp = args.timestamp
     model_ckpt = args.model_ckpt
+    dataset_type = args.em_dataset_type
 
     mlflow.log_param("data_dir", data_dir)
     mlflow.log_param("batch_size", batch_size)
@@ -397,25 +349,22 @@ def main():
     rel_path   = os.getcwd()
     dir_string = "AE_test"
 
-
     shallow_layer, z_emb_size, pad, deep_layer,dim, features, var_stride = get_AE_params(img_resolution)
     nworkers   = 4 # number of wrokers used for efficient data loading
     ae_model   = AutoEncoder(deep_layer, shallow_layer, z_emb_size, dim, features, var_stride)
 
-
     if args.evalmode == True:
   
-        artifacts_dir = rel_path + '/artifacts/artifact_' + dir_string + "_" + timestamp + '/'
-        load_model_ckp  = rel_path + "/checkpoints/checkpoint_" + dir_string + "_" + timestamp + '/' + model_ckpt
+        artifacts_dir  = rel_path + '/artifacts/artifact_' + dir_string + "_" + timestamp + '/'
+        load_model_ckp = rel_path + "/checkpoints/checkpoint_" + dir_string + "_" + timestamp + '/' + model_ckpt
 
         if not os.path.exists(artifacts_dir):
             os.makedirs(artifacts_dir)
  
-        normal_csv = 'normal_embeddings.csv'
-        anomaly_csv = 'anomaly_embeddings.csv'
+        normal_csv  = '{}_normal_embeddings.csv'.format(dataset_type)
+        anomaly_csv = '{}_anomaly_embeddings.csv'.format(dataset_type)
       
-        anomaly_data_loader, normal_data_loader = get_anomalies(rel_path, img_resolution, nworkers)
-
+        anomaly_data_loader, normal_data_loader = get_anomalies(rel_path, img_resolution, nworkers,dataset_type)
         ae_model.load_state_dict(torch.load(load_model_ckp))
 
         anom_embed, anom_target, anomaly_error = eval_model(ae_model, anomaly_data_loader, z_emb_size, pad)
@@ -424,8 +373,8 @@ def main():
         generate_embedding_csv(norm_embed, norm_target, z_emb_size, artifacts_dir, normal_csv)
         generate_embedding_csv(anom_embed, anom_target, z_emb_size, artifacts_dir, anomaly_csv)
 
-        plot_distplot(anomaly_error, artifacts_dir + 'anomaly_reconstruction_error_plot.png')
-        plot_distplot(normal_error, artifacts_dir + 'normal_reconstruction_error_plot.png')
+        plot_distplot(anomaly_error, artifacts_dir + '{}_anomaly_reconstruction_error_plot.png'.format(dataset_type))
+        plot_distplot(normal_error, artifacts_dir + '{}_normal_reconstruction_error_plot.png'.format(dataset_type))
 
      
     else:

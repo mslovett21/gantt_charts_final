@@ -30,8 +30,8 @@ def plot_TSNE_2D(feature_df, artifacts_dir):
 
 def read_csv(artifacts_dir):
 
-    normal_embedding_csv = artifacts_dir + 'normal_embeddings.csv'
-    anomaly_embedding_csv = artifacts_dir + 'anomaly_embeddings.csv'
+    normal_embedding_csv = artifacts_dir + 'train_normal_embeddings.csv'
+    anomaly_embedding_csv = artifacts_dir + 'train_anomaly_embeddings.csv'
 
     normal_embed = pd.read_csv(normal_embedding_csv)
     anomaly_embed = pd.read_csv(anomaly_embedding_csv)
